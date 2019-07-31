@@ -10,24 +10,27 @@ class PostGatherer {
 
   def getPostsFromUrl(url: String): Iterable[Post] = {
     val json = gatherWholeJson(url)
-    val hCursor: HCursor = json.hcursor
-    hCursor.values.get.map(mapJsonToPost)
+    gatherPostsFromJson(json)
   }
-
 
   private def gatherWholeJson(url: String): Json = {
     val rawJson = scala.io.Source.fromURL(url).mkString
     parseJson(rawJson)
   }
 
-  private def parseJson(rawJson: String): Json = {
+  private[processing] def parseJson(rawJson: String): Json = {
     parse(rawJson) match {
       case Left(failure) => throw new IllegalArgumentException(s"Provided JSON is invalid: " + failure.message)
       case Right(json) => json
     }
   }
 
-  private def mapJsonToPost(json: Json): Post = {
+  private[processing] def gatherPostsFromJson(json: Json): Iterable[Post] = {
+    val hCursor: HCursor = json.hcursor
+    hCursor.values.get.map(mapJsonToPost)
+  }
+
+  private[processing] def mapJsonToPost(json: Json): Post = {
     val cursor = json.hcursor
     try {
       val userId = cursor.get[Long]("userId").right.get
