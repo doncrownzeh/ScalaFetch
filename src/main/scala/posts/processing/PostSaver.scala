@@ -10,12 +10,14 @@ class PostSaver {
 
   def saveToFile(fileName: String, content: String): Unit = {
     import java.io._
+    val pw = new PrintWriter(new File(fileName))
     try {
-      val pw = new PrintWriter(new File(fileName))
       pw.write(content)
-      pw.close() // wyciek (monada Resource w catz)
     } catch {
       case e: FileNotFoundException => throw new IOException(s"Failed to create file: $fileName. " + e.getMessage)
+    }
+    finally {
+      pw.close()
     }
   }
 
@@ -42,5 +44,4 @@ class PostSaver {
     val body = Json.fromString(comment.body)
     Json.fromFields(List(("postId", postId), ("id", id), ("name", name), ("email", email), ("body", body)))
   }
-
 }

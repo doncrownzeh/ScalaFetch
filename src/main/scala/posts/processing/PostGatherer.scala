@@ -8,12 +8,12 @@ import posts.data.{Comment, Post}
 
 class PostGatherer {
 
-  def getPostsFromUrl(url: String): Iterable[Post] = {
+  private def getPostsFromUrl(url: String): Iterable[Post] = {
     val json = gatherWholeJson(url)
     gatherPostsFromJson(json)
   }
 
-  def getCommentsFromUrl(url: String): Iterable[Comment] = {
+  private def getCommentsFromUrl(url: String): Iterable[Comment] = {
     val json = gatherWholeJson(url)
     val hCursor = json.hcursor
     hCursor.values.get.map(mapJsonToComment)
@@ -24,7 +24,9 @@ class PostGatherer {
     parseJson(rawJson)
   }
 
-  def getPostsWithComments(posts: Iterable[Post], comments: Iterable[Comment]): Iterable[Post] = {
+  def getPostsWithComments(postsUrl: String, commentsUrl: String): Iterable[Post] = {
+    val posts = getPostsFromUrl(postsUrl)
+    val comments = getCommentsFromUrl(commentsUrl)
     posts.map(post => {
       attachCommentsToPost(post, comments)
     })
@@ -59,23 +61,29 @@ class PostGatherer {
       title <- cursor.get[String]("title")
       body <- cursor.get[String]("body")
     } yield Post(userId, id, title, body, Iterable())
-    either.right.get
-  }
-    catch
-    {
+    try {
+      either.right.get
+    }
+    catch {
       case e: NoSuchElementException => throw new NullPointerException("Cannot map given JSON to Post because of missing field." + e.getMessage)
     }
   }
 
+
   private def mapJsonToComment(json: Json): Comment = {
     val cursor = json.hcursor
+    val either = for {
+      postId <- cursor.get[Long]("postId")
+      id <- cursor.get[Long]("id")
+      name <- cursor.get[String]("name")
+      email <- cursor.get[String]("email")
+      body <- cursor.get[String]("body")
+    } yield Comment(postId, id, name, email, body)
     try {
-      val postId = cursor.get[Long]("postId").right.get
-      val id = cursor.get[Long]("id").right.get
-      val name = cursor.get[String]("name").right.get
-      val email = cursor.get[String]("email").right.get
-      val body = cursor.get[String]("body").right.get
-      Comment(postId, id, name, email, body)
+      either.right.get
+    }
+    catch {
+      case e: NoSuchElementException => throw new NullPointerException("Cannot map given JSON to Comment because of missing field." + e.getMessage)
     }
   }
 }
