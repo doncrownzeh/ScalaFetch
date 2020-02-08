@@ -1,22 +1,19 @@
 package posts.processing
 
-import java.util.NoSuchElementException
-
-import io.circe.{HCursor, Json}
+import io.circe.Decoder.Result
+import io.circe._
+import io.circe.generic.auto._
 import io.circe.parser.parse
 import posts.data.{Comment, Post}
 
+import scala.collection.immutable.Iterable
+import scala.util.Try
+
 class PostGatherer {
 
-  private def getPostsFromUrl(url: String): Iterable[Post] = {
+  private def getPostsFromUrl(url: String): Iterable[Result[Post]] = {
     val json = gatherWholeJson(url)
     gatherPostsFromJson(json)
-  }
-
-  private def getCommentsFromUrl(url: String): Iterable[Comment] = {
-    val json = gatherWholeJson(url)
-    val hCursor = json.hcursor
-    hCursor.values.get.map(mapJsonToComment)
   }
 
   private def gatherWholeJson(url: String): Json = {
@@ -24,66 +21,39 @@ class PostGatherer {
     parseJson(rawJson)
   }
 
-  def getPostsWithComments(postsUrl: String, commentsUrl: String): Iterable[Post] = {
-    val posts = getPostsFromUrl(postsUrl)
-    val comments = getCommentsFromUrl(commentsUrl)
-    posts.map(post => {
-      attachCommentsToPost(post, comments)
-    })
+  private def getCommentsFromUrl(url: String): Iterable[Result[Comment]] = {
+    val json = gatherWholeJson(url)
+    val values = json.hcursor.values
+    values.get.map(json => json.as[Comment])(collection.breakOut)
   }
 
-  private def attachCommentsToPost(post: Post, comments: Iterable[Comment]): Post = {
-    val postId = post.id
-    val filteredComments = comments.filter(comment => {
-      comment.postId == postId
-    })
-    post.copy(comments = filteredComments)
+  def getPostsWithComments(postsUrl: String, commentsUrl: String): Try[Iterable[Post]] = {
+    val posts = getPostsFromUrl(postsUrl)
+    val comments = getCommentsFromUrl(commentsUrl)
+    Try(posts.map(post => attachCommentsToPost(post, comments)))
+  }
+
+  private def attachCommentsToPost(post: Result[Post], comments: Iterable[Result[Comment]]): Post = {
+   post.map(_.copy(comments = comments.map(_.right.get).filter(_.postId == post.right.get.id))).right.get
   }
 
 
   private[processing] def parseJson(rawJson: String): Json = {
     parse(rawJson) match {
-      case Left(failure) => throw new IllegalArgumentException(s"Provided JSON is invalid: " + failure.message)
+      case Left(failure) => throw new IllegalArgumentException(s"Provided JSON is invalid: $failure.message")
       case Right(json) => json
     }
   }
 
-  private[processing] def gatherPostsFromJson(json: Json): Iterable[Post] = {
-    val hCursor: HCursor = json.hcursor
-    hCursor.values.get.map(mapJsonToPost)
-  }
+  private[processing] def gatherPostsFromJson(json: Json): Iterable[Either[DecodingFailure, Post]] = json.hcursor.values.get.map(asPost)(collection.breakOut)
 
-  private[processing] def mapJsonToPost(json: Json): Post = {
-    val cursor = json.hcursor
-    val either = for {
-      userId <- cursor.get[Long]("userId")
-      id <- cursor.get[Long]("id")
-      title <- cursor.get[String]("title")
-      body <- cursor.get[String]("body")
-    } yield Post(userId, id, title, body, Iterable())
-    try {
-      either.right.get
-    }
-    catch {
-      case e: NoSuchElementException => throw new NullPointerException("Cannot map given JSON to Post because of missing field." + e.getMessage)
-    }
-  }
-
-
-  private def mapJsonToComment(json: Json): Comment = {
-    val cursor = json.hcursor
-    val either = for {
-      postId <- cursor.get[Long]("postId")
-      id <- cursor.get[Long]("id")
-      name <- cursor.get[String]("name")
-      email <- cursor.get[String]("email")
-      body <- cursor.get[String]("body")
-    } yield Comment(postId, id, name, email, body)
-    try {
-      either.right.get
-    }
-    catch {
-      case e: NoSuchElementException => throw new NullPointerException("Cannot map given JSON to Comment because of missing field." + e.getMessage)
-    }
+  private def asPost(json: Json): Either[DecodingFailure, Post] = {
+    val hCursor = json.hcursor
+    for {
+      userId <- hCursor.downField("userId").as[Long]
+      id <- hCursor.downField("id").as[Long]
+      title <- hCursor.downField("title").as[String]
+      body <- hCursor.downField("body").as[String]
+    } yield Post(userId, id, title, body, Iterable.empty)
   }
 }

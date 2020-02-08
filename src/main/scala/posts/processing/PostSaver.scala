@@ -1,18 +1,17 @@
 package posts.processing
 
 import io.circe.Json
-import posts.data.{Comment, Post}
-
-import scala.collection.immutable.List
-
+import io.circe.generic.auto._
+import io.circe.syntax._
+import posts.data.Post
 
 class PostSaver {
 
-  def saveToFile(fileName: String, content: String): Unit = {
+  def saveToFile(fileName: String, content: Json): Unit = {
     import java.io._
     val pw = new PrintWriter(new File(fileName))
     try {
-      pw.write(content)
+      pw.write(content.toString())
     } catch {
       case e: FileNotFoundException => throw new IOException(s"Failed to create file: $fileName. " + e.getMessage)
     }
@@ -22,26 +21,8 @@ class PostSaver {
   }
 
   def saveToFile(post: Post): Unit = {
-    val fileName = post.id.toString + ".json"
-    val content = mapPostToJson(post).toString
+    val fileName = post.id + ".json"
+    val content = post.asJson
     saveToFile(fileName, content)
-  }
-
-  private def mapPostToJson(post: Post): Json = {
-    val userId = Json.fromLong(post.userId)
-    val id = Json.fromLong(post.id)
-    val title = Json.fromString(post.title)
-    val body = Json.fromString(post.body)
-    val comments = Json.fromValues(post.comments.map(mapCommentToJson))
-   Json.fromFields(List(("userId", userId), ("id", id), ("title", title), ("body", body), ("comments", comments)))
-  }
-
-  private def mapCommentToJson(comment: Comment): Json = {
-    val postId = Json.fromLong(comment.postId)
-    val id = Json.fromLong(comment.id)
-    val name = Json.fromString(comment.name)
-    val email = Json.fromString(comment.email)
-    val body = Json.fromString(comment.body)
-    Json.fromFields(List(("postId", postId), ("id", id), ("name", name), ("email", email), ("body", body)))
   }
 }

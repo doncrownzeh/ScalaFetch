@@ -1,4 +1,4 @@
-name := "BubbleSortScala15kBrussels"
+name := "ScalaFetch"
 
 version := "0.1"
 
