@@ -1,59 +1,50 @@
 package posts.processing
-
 import io.circe.Decoder.Result
 import io.circe._
 import io.circe.generic.auto._
-import io.circe.parser.parse
 import posts.data.{Comment, Post}
+import io.circe.parser.parse
 
-import scala.collection.immutable.Iterable
-import scala.util.Try
+import scala.collection.immutable.List
+
 
 class PostGatherer {
 
-  private def getPostsFromUrl(url: String): Iterable[Result[Post]] = {
-    val json = gatherWholeJson(url)
-    gatherPostsFromJson(json)
+  def getPostsWithComments(postsUrl: String, commentsUrl: String): Either[Exception, List[Post]] = getFromUrl[Post](postsUrl, decodePost) match {
+    case Left(exception) => Left(exception)
+    case Right(posts) => Right(posts.map(post => post.copy(comments = getFromUrl[Comment](commentsUrl, decodeComment) match {
+      case Left(exception) => throw new IllegalArgumentException(s"Invalid comment $exception")
+      case Right(comments) => comments.filter(comment => comment.postId == post.id)
+    })))
   }
 
-  private def gatherWholeJson(url: String): Json = {
+  private def getFromUrl[A](url: String, decode: Json => Result[A]): Either[Exception, List[A]] = {
     val rawJson = scala.io.Source.fromURL(url).mkString
-    parseJson(rawJson)
-  }
-
-  private def getCommentsFromUrl(url: String): Iterable[Result[Comment]] = {
-    val json = gatherWholeJson(url)
-    val values = json.hcursor.values
-    values.get.map(json => json.as[Comment])(collection.breakOut)
-  }
-
-  def getPostsWithComments(postsUrl: String, commentsUrl: String): Try[Iterable[Post]] = {
-    val posts = getPostsFromUrl(postsUrl)
-    val comments = getCommentsFromUrl(commentsUrl)
-    Try(posts.map(post => attachCommentsToPost(post, comments)))
-  }
-
-  private def attachCommentsToPost(post: Result[Post], comments: Iterable[Result[Comment]]): Post = {
-   post.map(_.copy(comments = comments.map(_.right.get).filter(_.postId == post.right.get.id))).right.get
-  }
-
-
-  private[processing] def parseJson(rawJson: String): Json = {
     parse(rawJson) match {
-      case Left(failure) => throw new IllegalArgumentException(s"Provided JSON is invalid: $failure.message")
-      case Right(json) => json
+      case Left(failure) => Left(failure)
+      case Right(json) =>
+        json.hcursor.values match {
+          case None => Left(new IllegalStateException("Missing JSON"))
+          case Some(elements) =>
+            val mappedElements = elements.map(decode)
+            val failures = mappedElements.collect { case Left(l) => l }
+            if (failures.nonEmpty) Left(new IllegalStateException(s"JSON contains invalid fields"))
+            else Right(mappedElements.map(_.right.get).toList)
+        }
     }
   }
 
-  private[processing] def gatherPostsFromJson(json: Json): Iterable[Either[DecodingFailure, Post]] = json.hcursor.values.get.map(asPost)(collection.breakOut)
-
-  private def asPost(json: Json): Either[DecodingFailure, Post] = {
+  private def decodePost(json: Json): Result[Post] = {
     val hCursor = json.hcursor
     for {
       userId <- hCursor.downField("userId").as[Long]
       id <- hCursor.downField("id").as[Long]
       title <- hCursor.downField("title").as[String]
       body <- hCursor.downField("body").as[String]
-    } yield Post(userId, id, title, body, Iterable.empty)
+    } yield Post(userId, id, title, body)
+  }
+
+  def decodeComment(json: Json): Result[Comment] = {
+    json.as[Comment]
   }
 }
