@@ -5,30 +5,34 @@ import io.circe._
 import io.circe.generic.auto._
 import posts.data.{Comment, Post}
 import io.circe.parser.parse
+
 import scala.io._
 import scala.collection.immutable.List
+import scala.util.{Failure, Success, Try}
 
 
 class PostGatherer {
 
   def getPostsWithComments(postsUrl: String, commentsUrl: String): Either[Exception, List[Post]] = getFromUrl[Post](postsUrl) match {
-    case Left(exception) => Left(exception)
-    case Right(posts) => Right(posts.map(post => post.copy(comments = getFromUrl[Comment](commentsUrl) match {
-      case Left(exception) => throw new IllegalArgumentException(s"Invalid comment $exception")
-      case Right(comments) => comments.filter(comment => comment.postId == post.id)
-    })))
+    case Left(exception) => Left(new IllegalStateException(s"Problem with retrieving posts from given URL: ${exception.getMessage}"))
+    case Right(posts) => getFromUrl[Comment](commentsUrl) match {
+      case Left(exception: Exception) => Left(new IllegalStateException(s"Problem with retrieving comments from given URL: ${exception.getMessage}"))
+      case Right(allComments) => Right(posts.map(post => post.copy(comments = allComments.filter(comment => comment.postId == post.id))))
+    }
   }
 
   private def getFromUrl[A](url: String)(implicit decode: Json => Result[A]): Either[Exception, List[A]] = {
-      val rawJson = Source.fromURL(url).mkString
-      parse(rawJson) match {
+    val jsonString = Try(Source.fromURL(url).mkString)
+    jsonString match {
+      case Failure(_) => Left(new IllegalStateException(s"Couldn't retrieve JSON from: $url"))
+      case Success(rawJson) => parse(rawJson) match {
         case Left(failure) => Left(failure)
-        case Right(json) =>
-          json.hcursor.values match {
+        case Right(json) => json.hcursor.values match {
             case None => Left(new IllegalStateException("Missing JSON"))
             case Some(elements) => decodeElements[A](elements)(decode)
           }
       }
+    }
   }
 
   private def decodeElements[A](elements: Iterable[Json])(decode: Json => Result[A]): Either[Exception, List[A]] = {

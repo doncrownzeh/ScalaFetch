@@ -9,8 +9,8 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     gatherer.getPostsWithComments(url, commentsUrl) match {
+      case Left(failure) =>  Console.err.println(failure)
       case Right(posts) => posts.foreach(saver.saveToFile)
-      case Left(failure) =>  println(failure)
     }
   }
 
