@@ -22,24 +22,26 @@ class PostGatherer {
   }
 
   private def getFromUrl[A](url: String)(implicit decode: Json => Result[A]): Either[Exception, List[A]] = {
-    val jsonString = Try(Source.fromURL(url).mkString)
-    jsonString match {
+    Try(Source.fromURL(url).mkString) match {
       case Failure(_) => Left(new IllegalStateException(s"Couldn't retrieve JSON from: $url"))
       case Success(rawJson) => parse(rawJson) match {
         case Left(failure) => Left(failure)
         case Right(json) => json.hcursor.values match {
-            case None => Left(new IllegalStateException("Missing JSON"))
-            case Some(elements) => decodeElements[A](elements)(decode)
-          }
+          case None => Left(new IllegalStateException("Missing JSON"))
+          case Some(elements) => decodeElements[A](elements)(decode)
+        }
       }
     }
   }
 
-  private def decodeElements[A](elements: Iterable[Json])(decode: Json => Result[A]): Either[Exception, List[A]] = {
-    val mappedElements = elements.map(decode)
-    val failures = mappedElements.collect { case Left(l) => l }
-    if (failures.nonEmpty) Left(new IllegalStateException(s"JSON contains invalid fields"))
-    else Right(mappedElements.map(_.right.get).toList)
+  private def decodeElements[A](elements: Iterable[Json]): (Json => Result[A]) => Either[Exception, List[A]] = {
+    def asEither(decode: Json => Result[A]): Either[Exception, List[A]] = {
+      val mappedElements = elements.map(decode)
+      val failures = mappedElements.collect { case Left(l) => l }
+      if (failures.nonEmpty) Left(new IllegalStateException(s"JSON contains invalid fields"))
+      else Right(mappedElements.map(_.right.get).toList)
+    }
+    asEither
   }
 
   private implicit def decodePost(json: Json): Result[Post] = {
